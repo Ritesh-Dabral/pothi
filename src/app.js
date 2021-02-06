@@ -11,11 +11,12 @@ console.log(`--- START TIME: ${startTime.getHours()}:${startTime.getMinutes()}:$
  * GLOBAL VARIABLE DECLERATION
  */
 var gloCountMinutes = 1;
-const domainReport = new Map();
-const userReport = new Map();
-const domain5min = new Map();
-const user5min = new Map();
+let domainReport  = new Map();
+let userReport    = new Map();
 
+// array to act as queue and remove/add maps based on time
+const domainQueue = [];
+const userQueue   = [];
 
 /*
 *
@@ -38,7 +39,7 @@ eventSource.onerror = function(event) {
 
 eventSource.onmessage = function(event) {
 
-    if(gloCountMinutes!==5){
+    
         // event.data will be a JSON string containing the message event.    
         let wikiData = JSON.parse(event.data);
 
@@ -49,18 +50,13 @@ eventSource.onmessage = function(event) {
 
         // domainReport
         if(domainReport.has(domainName)){
-
-            setDomain(domainReport,domainName,page_title);
-            // update global
-            setDomain(domain5min,domainName,page_title);
-            
+            setDomain(domainReport,domainName,page_title);      
         }
         else{
             // if the domain key doesn't exist, create one
             let pages = new Set();
             pages.add(page_title);
             domainReport.set(domainName, {"pages": pages});
-            domain5min.set(domainName, {"pages": pages});
         }
 
 
@@ -70,19 +66,14 @@ eventSource.onmessage = function(event) {
             let user_text = performer['user_text'];
 
             if(userReport.has(user_text)){
-
                 setUser(userReport,user_text);
-                // set global
-                setUser(user5min,user_text);
-
             }
             else{
                 // if the user key doesn't exist, create one
                 userReport.set(user_text, {"count": 1});
-                user5min.set(user_text, {"count": 1});
             }
         }
-    }
+    
 };
 
 
@@ -180,21 +171,124 @@ function showUser(tempUserReport){
 
 
 /**
+ * Function to display current + past 4 data of domains
+ */
+function cumulativeDomainReport(){
+    // cumulate and show
+    let cumuDomainReportMap = new Map();
+
+    domainQueue.forEach( tempReport => {
+        // working on maps within it
+        tempReport.forEach(function(value, key) {
+            // key is domain name
+            // pages is the set of pages within it
+            let {pages} = value;
+            // now finally add the domain name and pages inside cumulative data
+
+            if(!cumuDomainReportMap.has(key)){
+                let newPages = new Set();
+                for (let item of pages){
+                    newPages.add(item);
+                }
+                // if no such key available, create one
+                cumuDomainReportMap.set(key,{"pages":newPages});
+            }else{
+                // if key already exists, update it
+                // get previous set of pages, and we have new ones also, update accordingly
+
+                let lastWikiData = cumuDomainReportMap.get(key);
+                let prevPages = lastWikiData['pages'];
+
+                let newPages = new Set();
+                for (let item of pages){
+                    newPages.add(item);
+                }
+                for (let item of prevPages){
+                    newPages.add(item);
+                }
+
+                cumuDomainReportMap.set(key, {"pages": newPages});
+            }
+        });
+    });
+
+    showDomain(cumuDomainReportMap);
+
+    // remove first instance
+    domainQueue.shift();
+}
+
+
+
+/**
+ * Function to display current + past 4 data of users
+ */
+function cumulativeUserReport(){
+    // cumulate and show
+    let cumuUserReportMap = new Map();
+    
+    userQueue.forEach( tempReport => {
+        // working on maps within it
+        tempReport.forEach(function(value, key) {
+            // key is domain name
+            // count is the set of pages user updated
+            let {count} = value;
+            
+            // now finally add the user name and count inside cumulative data
+
+            if(!cumuUserReportMap.has(key)){
+                // if no such key available, create one
+                cumuUserReportMap.set(key,{"count":count});
+                //console.log(`key: ${key}, count: ${count}`);
+            }else{
+                // if key already exists, update it
+                // get previous count, and we have new ones also, update accordingly
+
+                let lastWikiData = cumuUserReportMap.get(key);
+                let prevCount = lastWikiData['count'];
+                //console.log(`key: ${key}, count: ${count}, prev: ${prevCount}`);
+                prevCount = prevCount + count;
+                cumuUserReportMap.set(key, {"count": prevCount});
+                
+            }
+        });
+    });
+
+
+    showUser(cumuUserReportMap);
+
+    // remove first instance
+    userQueue.shift();
+}
+
+
+
+/**
  * Run to execute related functions
  */
 setInterval(()=>{
 
-    if(gloCountMinutes!==5){
-        showDomain(domainReport);
-        showUser(userReport);
-    }
-    else{
-        showDomain(domain5min);
-        showUser(user5min);
+    let newDomainMap = new Map(domainReport);
+    let newUserMap = new Map(userReport);
 
+    domainQueue.push(newDomainMap);
+    userQueue.push(newUserMap);
+
+    // print domain
+    if(domainQueue.length<5){
+        showDomain(domainQueue[gloCountMinutes-1]);
+    }
+    else if(domainQueue.length===5){
+        cumulativeDomainReport();
+    }
+
+    // print user
+    if(userQueue.length<5){
+        showUser(userQueue[gloCountMinutes-1]);
+    }
+    else if(userQueue.length===5){
+        cumulativeUserReport();
         gloCountMinutes = 0;
-        domain5min.clear();
-        user5min.clear();
     }
     
     domainReport.clear();
